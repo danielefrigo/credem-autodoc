@@ -1,5 +1,7 @@
 import docx
 import json
+import yaml
+import csv
 import re
 
 from datetime import datetime
@@ -74,16 +76,18 @@ def generate_doc(dbt_path: str):
     doc.add_heading("Premessa", level=1)
     doc.add_heading("Flussi", level=2)
     doc.add_paragraph(("E’ stato richiesto di replicare in ambiente Cloud "
-                      "dbt/BigQuery i caricamenti dei seguenti flussi:\n"))
-    # TODO read from pcs_anag_flussi seed file
+                      "dbt/BigQuery i caricamenti dei seguenti flussi "
+                      f"nella Subject Area {prj_name.upper()}:\n"))
+    with open(f"{dbt_path}/seeds/pcs_anag_flussi.csv", "r") as s:
+        reader = csv.reader(s)
+        header = [re.sub(r"_cd$|_fl$|_de$", "", f).replace("_", " ").capitalize() for f in next(reader)]
+        flussi = [row for row in reader]
     generate_table(
       doc=doc,
-      header=["Flusso", "Periodicità", "Tipo flusso", "Tipo input", "Note"],
-      body=[
-        ["", "", "", "", ""],
-      ]
+      header=header,
+      body=flussi
     )
-    doc.add_paragraph(f"\ne in particolare nella Subject Area {prj_name.upper()}.\n")
+    doc.add_paragraph()
     doc.add_paragraph(("Lo sviluppo ha come obiettivo il porting su dbt delle "
                         "attuali logiche di caricamento presenti su DataStage e "
                         "sulle query del modello Data Vault salvate nelle tabelle "
@@ -99,10 +103,20 @@ def generate_doc(dbt_path: str):
     add_hyperlink(paragraph=paragraph, text="documento di progettazione.", url="https://docs.google.com/document/u/1/d/1F9nKcThgW3IIWqGHxDgSoa3FUj_K23f1FzQHJ0ZLhrU/")
     doc.add_paragraph(("I modelli dbt, le definizioni delle external table e "
                       "dei test di seguito menzionati sono consultabili all’interno "
-                      "del repository Azure DevOps xxxx."))
+                      f"del repository Azure DevOps {prj_name.upper()}-edp."))
     doc.add_paragraph("Il progetto utilizza inoltre i seguenti package dbt:")
-    # TODO read dynamically the list pf packages from manifest
-    doc.add_paragraph("macro_dbt_hublle (repository Azure DevOps DBTELT/dbtelt-dbtmacro)\n", style='List Paragraph1')
+    with open(f"{dbt_path}/packages.yml", "r") as p:
+        packages = yaml.safe_load(p)
+    for pkg in packages["packages"]:
+        if "git" in pkg:
+            repo_name = pkg["git"].split("/")[-1].replace(".git", "")
+            doc.add_paragraph(f"{repo_name} (repository {pkg['git']})", style='List Paragraph1')
+        elif "package" in pkg:
+            repo_name = pkg["package"]
+            doc.add_paragraph(f"{repo_name} (version {pkg['version']})", style='List Paragraph1')
+        elif "local" in pkg:
+            doc.add_paragraph(f"{pkg['local']} (local package)", style='List Paragraph1')
+    doc.add_paragraph()
     generate_table(
       doc=doc,
       header=["ID Componente", "Nome Componente"],
@@ -148,8 +162,11 @@ def generate_doc(dbt_path: str):
 
     doc.add_heading("Regole di Data Quality", level=3)
     doc.add_paragraph("Di seguito le regole applicate:")
-    doc.add_paragraph(("controllo di chiave primaria su tutte le viste di staging, "
-                      "applicato sui LOAD_TS degli ultimi 3 giorni di calendario"),
+    doc.add_paragraph(("controllo di chiave primaria su tutte le viste di staging"),
+                        style='List Paragraph1')
+    doc.add_paragraph(("controllo di coerenza della data header con la periodicità del flusso"),
+                        style='List Paragraph1')
+    doc.add_paragraph(("controllo di coerenza della numerosità dei record con il file di header"),
                         style='List Paragraph1')
     doc.add_paragraph()
 
@@ -172,9 +189,10 @@ def generate_doc(dbt_path: str):
             wrk_tables.append([n["name"], "\n".join(n["depends_on"]["nodes"]).replace(f"model.{prj_name}.HS_", "")])
     if len(wrk_tables) > 0:
         doc.add_heading("Tabelle di WORK", level=3)
-        paragraph = doc.add_paragraph()
-        font = paragraph.add_run("... qui spiegare perchè siano necessarie queste tabelle di work ...").font
-        #font.highlight_color = docx.enum.text.WD_COLOR_INDEX.YELLOW
+        paragraph = doc.add_paragraph("Per gli hub alimentati da più flussi sono previste delle tabelle di work intermedie "
+                                      "che implementano degli hub locali al singolo flusso. "
+                                      "La generazione dell'hub complessivo viene poi demandata allo step relativo nel silver layer "
+                                      "tramite l'unione delle tabelle di work e la scrittura in full della tabella target.")
         paragraph = doc.add_paragraph()
         generate_table(
           doc=doc,
@@ -183,7 +201,20 @@ def generate_doc(dbt_path: str):
         )
 
     doc.add_heading("Silver Layer", level=2)
-    doc.add_paragraph("...")
+    doc.add_paragraph("Le tabelle del Data Vault sono caricate secondo le seguenti tipologie di caricamento:\n")
+    doc.add_paragraph(('Le tabelle di tipologia HUB: materializzazione dbt "incremental"'),
+                        style='List Paragraph1')
+    doc.add_paragraph(('Le tabelle di tipologia LINK: materializzazione dbt "incremental"'),
+                        style='List Paragraph1')
+    doc.add_paragraph(('Le tabelle di tipologia Reference non storici: materializzazione dbt "table"'),
+                        style='List Paragraph1')
+    doc.add_paragraph(('Le tabelle di tipologia Satellite e Reference storici delta: materializzazione dbt "snapshot_hubble" (senza “hard_deletes”)'),
+                        style='List Paragraph1')
+    doc.add_paragraph(('Le tabelle di tipologia Satellite e Reference storici full: materializzazione dbt "snapshot_hubble" (con “hard_deletes”)'),
+                        style='List Paragraph1')
+    doc.add_paragraph("Per i dettagli implementativi si rimanda al documento di progettazione ed "
+                      "alla documentazione generata da dbt.")
+
     for model_type in model_types.keys():
         data_vault_tables = []
         for n in nodes.values():
