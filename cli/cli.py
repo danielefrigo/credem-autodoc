@@ -2,6 +2,7 @@ from typer import Option, Typer
 from typer.main import get_command
 from typing import Annotated
 from src.generate_doc import generate_doc
+from src.generate_test_plan import generate_test_plan
 
 
 app = Typer(name="autodoc")
@@ -22,6 +23,14 @@ def doc(
     dbt_path: DBT_PATH
 ):
     generate_doc(
+        dbt_path=dbt_path
+    )
+
+@generate.command()
+def testplan(
+    dbt_path: DBT_PATH
+):
+    generate_test_plan(
         dbt_path=dbt_path
     )
 
